@@ -12,7 +12,7 @@ import numpy as np
 
 def sinaplot(dataset, positions=None, vert=True, widths=0.5,
              showmeans=False, showextrema=True, showmedians=False, scaled=True,
-             points=100, bw_method=None, ax=None,
+             show_violin=False, points=100, bw_method=None, ax=None,
              scatter_kwargs=None, line_kwargs=None):
     """
     a cross between a violinplot and a scatterplot, from the R package sinaplot.
@@ -71,9 +71,11 @@ def sinaplot(dataset, positions=None, vert=True, widths=0.5,
 
     # Check whether we are rendering vertically or horizontally
     if vert:
+        fill = ax.fill_betweenx
         perp_lines = ax.hlines
         par_lines = ax.vlines
     else:
+        fill = ax.fill_between
         perp_lines = ax.vlines
         par_lines = ax.hlines
 
@@ -104,14 +106,30 @@ def sinaplot(dataset, positions=None, vert=True, widths=0.5,
     
     # get scale_factor (either scaled by largest value in all sinaplots or not scaled)
     if scaled:
-        scale_factor = jittered.max()
+        scale_factor = np.ones((N, 1)) * jittered.max()
     else:
         scale_factor = jittered.max(1)
         scale_factor = scale_factor.reshape((N, 1))
     
     jittered = 0.5 * widths * jittered / scale_factor + positions
     
-    #plot scatterplot
+    # add background density plots
+    if show_violin:
+        # Render violins
+        bodies = []
+        for stats, pos, width, sf, col in zip(vpstats, positions, widths, scale_factor, scatter_color):
+            # The 0.5 factor reflects the fact that we plot from v-p to
+            # v+p
+            vals = np.array(stats['vals'])
+            vals = 0.5 * width * vals / sf
+            bodies += [fill(stats['coords'],
+                            -vals + pos,
+                            vals + pos,
+                            facecolor=col,
+                            alpha=0.2)]
+        artists['bodies'] = bodies
+    
+    # plot scatterplot
     if vert:
         artists['scatter'] = plt.scatter(jittered.flatten(),
                                          dataset.T.flatten(),
