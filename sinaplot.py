@@ -62,8 +62,8 @@ def sinaplot(dataset, positions=None, vert=True, widths=0.5,
     # Validate colors
     if isinstance(scatter_color, str):
         scatter_color = [scatter_color] * N
-    elif len(widths) != N:
-        raise ValueError(datashape_message.format("color"))
+    elif len(scatter_color) != N:
+        raise ValueError(datashape_message.format("scatter_color"))
     
     # Calculate ranges for statistics lines
     pmins = -0.25 * np.array(widths) + positions
