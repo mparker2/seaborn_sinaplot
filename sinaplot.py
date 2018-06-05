@@ -52,7 +52,7 @@ class _SinaPlotter(_ViolinPlotter):
                 # Plot the points in centered positions
                 cat_pos = np.ones(strip_data.size) * i
                 cat_pos += self.jitterer(strip_data, support, density)
-                kws.update(c=self.point_colors[i])
+                kws.update(color=self.point_colors[i])
                 if self.orient == "v":
                     ax.scatter(cat_pos, strip_data, **kws)
                 else:
@@ -70,7 +70,7 @@ class _SinaPlotter(_ViolinPlotter):
                     center = i + offsets[j]
                     cat_pos = np.ones(strip_data.size) * center
                     cat_pos += self.jitterer(strip_data, support, density)
-                    kws.update(c=self.point_colors[j])
+                    kws.update(color=self.point_colors[j])
                     if self.orient == "v":
                         ax.scatter(cat_pos, strip_data, zorder=2, **kws)
                     else:
