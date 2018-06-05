@@ -1,157 +1,117 @@
-# -*- coding: utf-8 -*-
-"""
-Created on Tue Jun 28 12:09:24 2016
-
-@author: matthew
-"""
-
 import matplotlib.pyplot as plt
-from matplotlib.mlab import GaussianKDE
-from matplotlib import cbook
+from seaborn.categorical import _ViolinPlotter
 import numpy as np
 
-def sinaplot(dataset, positions=None, vert=True, widths=0.5,
-             showmeans=False, showextrema=True, showmedians=False, scaled=True,
-             show_violin=False, points=100, bw_method=None, ax=None,
-             scatter_kwargs=None, line_kwargs=None):
-    """
-    a cross between a violinplot and a scatterplot, from the R package sinaplot.
-    Reimplemented by ripping off the violinplot function from matplotlib and 
-    tweaking a few bits.
-    """
-    
-    def _kde_method(X, coords):
-        # fallback gracefully if the vector contains only one value
-        if np.all(X[0] == X):
-            return (X[0] == coords).astype(float)
-        kde = GaussianKDE(X, bw_method)
-        return kde.evaluate(coords)
-    vpstats = cbook.violin_stats(dataset, _kde_method, points=points)
-    
+
+class _SinaPlotter(_ViolinPlotter):
+
+    def __init__(self, x, y, hue, data, order, hue_order,
+                 bw, cut, scale, scale_hue, gridsize,
+                 width, inner, split, dodge, orient, linewidth,
+                 color, palette, saturation,
+                 violin_facealpha, point_facealpha):
+        # initialise violinplot
+        super(_SinaPlotter, self).__init__(
+            x, y, hue, data, order, hue_order,
+            bw, cut, scale, scale_hue, gridsize,
+            width, inner, split, dodge, orient, linewidth,
+            color, palette, saturation
+        )
+
+        # Set object attributes
+        self.dodge = dodge
+        # bit of a hack to set color alphas for points and violins
+        self.point_colors = [(*color, point_facealpha) for color in self.colors]
+        self.colors = [(*color, violin_facealpha) for color in self.colors]
+
+    def jitterer(self, values, support, density):
+        max_density = np.interp(values, support, density)
+        max_density *= self.dwidth
+        jitter = np.random.uniform(-1, 1, size=len(max_density)) * max_density
+        return jitter
+
+    def draw_stripplot(self, ax, kws):
+        """Draw the points onto `ax`."""
+        # Set the default zorder to 2.1, so that the points
+        # will be drawn on top of line elements (like in a boxplot)
+        for i, group_data in enumerate(self.plot_data):
+            if self.plot_hues is None or not self.dodge:
+
+                if self.hue_names is None:
+                    hue_mask = np.ones(group_data.size, np.bool)
+                else:
+                    hue_mask = np.array([h in self.hue_names
+                                         for h in self.plot_hues[i]], np.bool)
+                    # Broken on older numpys
+                    # hue_mask = np.in1d(self.plot_hues[i], self.hue_names)
+
+                strip_data = group_data[hue_mask]
+                density = self.density[i]
+                support = self.support[i]
+
+                # Plot the points in centered positions
+                cat_pos = np.ones(strip_data.size) * i
+                cat_pos += self.jitterer(strip_data, support, density)
+                kws.update(c=self.point_colors[i])
+                if self.orient == "v":
+                    ax.scatter(cat_pos, strip_data, **kws)
+                else:
+                    ax.scatter(strip_data, cat_pos, **kws)
+
+            else:
+                offsets = self.hue_offsets
+                for j, hue_level in enumerate(self.hue_names):
+                    hue_mask = self.plot_hues[i] == hue_level
+                    strip_data = group_data[hue_mask]
+                    density = self.density[i][j]
+                    support = self.support[i][j]
+
+                    # Plot the points in centered positions
+                    center = i + offsets[j]
+                    cat_pos = np.ones(strip_data.size) * center
+                    cat_pos += self.jitterer(strip_data, support, density)
+                    kws.update(c=self.point_colors[j])
+                    if self.orient == "v":
+                        ax.scatter(cat_pos, strip_data, zorder=2, **kws)
+                    else:
+                        ax.scatter(strip_data, cat_pos, zorder=2, **kws)
+
+    def plot(self, ax, kws):
+        """Make the sinaplot."""
+        self.draw_violins(ax)
+        self.draw_stripplot(ax, kws)
+        self.annotate_axes(ax)
+        if self.orient == "h":
+            ax.invert_yaxis()
+
+
+def sinaplot(x=None, y=None, hue=None, data=None, order=None, hue_order=None,
+             bw="scott", cut=2, scale="count", scale_hue=True, gridsize=100,
+             width=.8, inner="box", split=False, dodge=True, orient=None,
+             linewidth=1, color=None, palette=None, saturation=.75, violin_facealpha=0.5,
+             point_linewidth=None, point_size=5, point_edgecolor="gray", point_facealpha=0.5,
+             legend=True, random_state=None, ax=None, **kwargs):
+
+    plotter = _SinaPlotter(x, y, hue, data, order, hue_order,
+                           bw, cut, scale, scale_hue, gridsize,
+                           width, inner, split, dodge, orient, linewidth,
+                           color, palette, saturation,
+                           violin_facealpha, point_facealpha)
+
+    np.random.seed(random_state)
+    point_size = kwargs.get("s", point_size)
+    if point_linewidth is None:
+        point_linewidth = point_size / 10
+    if point_edgecolor == "gray":
+        point_edgecolor = plotter.gray
+    kwargs.update(dict(s=point_size ** 2,
+                       edgecolor=point_edgecolor,
+                       linewidth=point_linewidth))
+
     if ax is None:
-        ax = plt.subplot()
-    
-    if scatter_kwargs is None:
-        scatter_kwargs = dict(s=20, color='b', marker='o', alpha=0.9)
-    scatter_color = scatter_kwargs.pop('color')
-    
-    if line_kwargs is None:
-        line_kwargs = dict(color='red', linewidth='1')
+        ax = plt.gca()
 
-    # Collections to be returned
-    artists = {}
-
-    N = len(vpstats)
-    datashape_message = ("List of violinplot statistics and `{0}` "
-                         "values must have the same length")
-
-    # Validate positions
-    if positions is None:
-        positions = np.arange(1, N + 1)
-    elif len(positions) != N:
-        raise ValueError(datashape_message.format("positions"))
-    positions = positions.reshape((N, 1))
-        
-    # Validate widths
-    if np.isscalar(widths):
-        widths = np.ones((N, 1)) * widths
-    elif len(widths) != N:
-        raise ValueError(datashape_message.format("widths"))
-    widths = widths.reshape((N, 1))
-
-    # Validate colors
-    if isinstance(scatter_color, str):
-        scatter_color = [scatter_color] * N
-    elif len(scatter_color) != N:
-        raise ValueError(datashape_message.format("scatter_color"))
-    
-    # Calculate ranges for statistics lines
-    pmins = -0.25 * np.array(widths) + positions
-    pmaxes = 0.25 * np.array(widths) + positions        
-
-    # Check whether we are rendering vertically or horizontally
-    if vert:
-        fill = ax.fill_betweenx
-        perp_lines = ax.hlines
-        par_lines = ax.vlines
-    else:
-        fill = ax.fill_between
-        perp_lines = ax.vlines
-        par_lines = ax.hlines
-
-    # Calculate jittered scatter positions and render sinaplots
-    jittered = []
-    means = []
-    mins = []
-    maxes = []
-    medians = []
-    
-    scatter_color_flattened = []
-    for i in range(N):
-        x = dataset[:,i]
-        xp = vpstats[i]['coords']
-        fp = vpstats[i]['vals']
-        #Uses numpy interpolate to estimate the limits for each points
-        interp = np.interp(x, xp, fp)
-        jittered.append(np.asarray([np.random.uniform(-r, r) for r in interp]))
-        
-        # append some stuff for the means/medians/extremities
-        means.append(vpstats[i]['mean'])
-        mins.append(vpstats[i]['min'])
-        maxes.append(vpstats[i]['max'])
-        medians.append(vpstats[i]['median'])
-        scatter_color_flattened += [scatter_color[i],]*len(x)
-        
-    jittered = np.asarray(jittered)
-    
-    # get scale_factor (either scaled by largest value in all sinaplots or not scaled)
-    if scaled:
-        scale_factor = np.ones((N, 1)) * jittered.max()
-    else:
-        scale_factor = jittered.max(1)
-        scale_factor = scale_factor.reshape((N, 1))
-    
-    jittered = 0.5 * widths * jittered / scale_factor + positions
-    
-    # add background density plots
-    if show_violin:
-        # Render violins
-        bodies = []
-        for stats, pos, width, sf, col in zip(vpstats, positions, widths, scale_factor, scatter_color):
-            # The 0.5 factor reflects the fact that we plot from v-p to
-            # v+p
-            vals = np.array(stats['vals'])
-            vals = 0.5 * width * vals / sf
-            bodies += [fill(stats['coords'],
-                            -vals + pos,
-                            vals + pos,
-                            facecolor=col,
-                            alpha=0.2)]
-        artists['bodies'] = bodies
-    
-    # plot scatterplot
-    if vert:
-        artists['scatter'] = plt.scatter(jittered.flatten(),
-                                         dataset.T.flatten(),
-                                         color=scatter_color_flattened,
-                                         **scatter_kwargs)
-    else:
-        artists['scatter'] = plt.scatter(dataset.T.flatten(),
-                                         jittered.flatten(),
-                                         color=scatter_color_flattened,
-                                         **scatter_kwargs)    
-    
-    # Render means
-    if showmeans:
-        artists['cmeans'] = perp_lines(means, pmins, pmaxes, **line_kwargs)
-    # Render extrema
-    if showextrema:
-        artists['cmaxes'] = perp_lines(maxes, pmins, pmaxes, **line_kwargs)
-        artists['cmins'] = perp_lines(mins, pmins, pmaxes, **line_kwargs)
-        artists['cbars'] = par_lines(positions, mins, maxes, **line_kwargs)
-
-    # Render medians
-    if showmedians:
-        artists['cmedians'] = perp_lines(medians, pmins, pmaxes, **line_kwargs)
-
-    return artists
+    plotter.plot(ax, kwargs)
+    if not legend:
+        ax.legend_.remove()
+    return ax
