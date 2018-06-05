@@ -1,1 +1,1 @@
-from sinaplot import sinaplot
+from .sinaplot import sinaplot
